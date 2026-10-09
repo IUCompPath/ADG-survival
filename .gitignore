@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Environments
+.env
+.venv/
+
+# Local data and outputs (never committed)
+data/
+features/
+results/
+eval_results/
+experiments/
+wandb/
+umaps*/
+*.pt
+*.pth
+*.bin
+*.pkl
+*.h5
+*.svs
+*.tiff
+*.ndpi
+
+# Large intermediate CSVs
+combined_results*.csv
+merged_with_risk.csv
+
+# Editor / OS
+.vscode/
+.DS_Store
+
+# Mamba build artifacts
+mamba/build/
+mamba/*.egg-info/
