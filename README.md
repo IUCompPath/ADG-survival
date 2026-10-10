@@ -1,9 +1,23 @@
-# Prognostic stratification of adult-type diffuse glioma from H&E whole-slide images
+# AI-Based Prognostic Risk Stratification of Adult-Type Diffuse Glioma Patients from H&E-Stained Slides
 
-Code for the survival-analysis study benchmarking **12 pathology foundation models**
-against **7 multiple-instance-learning (MIL) aggregators** for overall-survival
-prediction in adult-type diffuse glioma (TCGA-GBM/LGG), together with an
-attention-faithfulness analysis of the learned models.
+Code for Innani et al., *Cancers* 2026 — a systematic benchmark of pathology
+foundation models (FMs) and multiple-instance-learning (MIL) methods for
+overall-survival risk stratification in adult-type diffuse glioma (ADG) under
+the WHO 2021 classification.
+
+**84 encoder-MIL configurations** (11 FMs x 7 MIL methods, plus seven ResNet-50
+baseline configurations) evaluated on **817 TCGA subjects** with patient-level
+10-fold cross-validation, together with a perturbation-based assessment of
+attention faithfulness.
+
+Headline result: UNI2 + MambaMIL reached the highest cross-validated
+concordance index (**C-index 0.77**), with several combinations performing
+comparably. Risk stratification *within* individual WHO 2021 types was not
+significant, and the score's discrimination largely reflects differences
+*between* WHO 2021 types.
+
+📄 [Paper](https://www.mdpi.com/2072-6694/18/20/3259) ·
+[doi:10.3390/cancers18203259](https://doi.org/10.3390/cancers18203259)
 
 The MIL backbone and Mamba CUDA kernels are adapted from
 [MambaMIL](https://github.com/isyangshu/MambaMIL) (MICCAI 2024); patching and
@@ -77,7 +91,8 @@ fold, so no patient appears in both training and test.
 ## 2. Feature extraction
 
 Tissue segmentation and patching follow CLAM (256x256 px at 20x). Each patch is
-then embedded with one of the 12 foundation models:
+then embedded with one of the pathology foundation models (11 domain-specific
+FMs plus an ImageNet-pretrained ResNet-50 baseline):
 
 ResNet50 (ImageNet) · Lunit · GigaPath · CTransPath · Hibou · H-Optimus-1 ·
 Virchow2 · CONCHv1.5 · UNI2 · CHIEF · PRISM · TITAN
@@ -156,8 +171,8 @@ Outputs (under `results/.../stats/`):
 |------|----------|
 | `cindex_with_ci.csv` | Pooled c-index + bootstrap CI; fold mean, SD, t-CI |
 | `per_fold_cindex.csv` | Per-fold c-index for every configuration |
-| `table_pooled_with_ci.csv` | 12x7 grid, `c [95% CI]` |
-| `table_foldwise_with_ci.csv` | 12x7 grid, fold-wise convention |
+| `table_pooled_with_ci.csv` | FM x MIL grid, `c [95% CI]` |
+| `table_foldwise_with_ci.csv` | FM x MIL grid, fold-wise convention |
 | `leading_model_comparisons.csv` | Pairwise deltas, bootstrap/t/Wilcoxon p, Holm-adjusted |
 
 Two conventions are reported, and they are **not interchangeable**:
@@ -198,8 +213,25 @@ python analysis/robustness_fm.py   # same sweep across foundation models
 
 ## Citation
 
-If you use this code, please cite the paper (reference to be added on
-publication) and the upstream work it builds on:
+If you use this code, please cite the paper and the upstream work it builds on:
+
+```bibtex
+@article{innani2026adg,
+  author        = {Innani, Shubham and Pitarch-Abaigar, Carla and
+                   Majeed, Marwan M. and Harmsen, Hannah and Bell, W. Robert and
+                   Makris, Dimitrios and Bakas, Spyridon},
+  title         = {{AI-Based Prognostic Risk Stratification of Adult-Type Diffuse
+                   Glioma Patients from H\&E-Stained Slides}},
+  journal       = {Cancers},
+  volume        = {18},
+  number        = {20},
+  article-number = {3259},
+  year          = {2026},
+  issn          = {2072-6694},
+  url           = {https://www.mdpi.com/2072-6694/18/20/3259},
+  doi           = {10.3390/cancers18203259}
+}
+```
 
 ```bibtex
 @inproceedings{yang2024mambamil,
