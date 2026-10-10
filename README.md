@@ -25,17 +25,23 @@ feature-extraction utilities follow [CLAM](https://github.com/mahmoodlab/CLAM).
 
 ---
 
-## Overview
+## Pipeline
 
-| Stage | Entry point |
-|-------|-------------|
-| 1. Data and cross-validation folds | `dataset_csv/`, `splits/`, `tools/splitting.py` |
-| 2. Patch extraction and FM features | `pipeline/extract_features.py` (see *Feature extraction*) |
-| 3. MIL training (10-fold CV) | `pipeline/main_survival.py` |
-| 4. Evaluation | `pipeline/eval_survival.py` |
-| 5. Aggregation, c-index, CIs, statistics | `analysis/cindex_stats.py`, `analysis/survival_results_all_.py` |
-| 6. Kaplan-Meier figures and median-OS tables | `analysis/plot_km_curves.py`, `analysis/median_survival_tables.py` |
-| 7. Attention faithfulness | `analysis/robust_att.py`, `analysis/robustness_fm.py` |
+| # | Stage | Entry point |
+|---|-------|-------------|
+| 1 | Data and survival labels | `dataset_csv/` |
+| 2 | Tissue segmentation and patching | [CLAM](https://github.com/mahmoodlab/CLAM) / [TRIDENT](https://github.com/mahmoodlab/TRIDENT) (external) |
+| 3 | Patch-level feature extraction (11 FMs) | CLAM / TRIDENT (external) |
+| 3b | Patient-level cross-validation folds | `tools/make_splits.py` |
+| 4 | MIL training (7 aggregators) | `pipeline/main_survival.py` |
+| 4b | Evaluation | `pipeline/eval_survival.py` |
+| 5 | C-index, confidence intervals, statistics | `analysis/cindex_stats.py`, `analysis/survival_results_all_.py` |
+| 6 | Kaplan-Meier curves and median-OS tables | `analysis/plot_km_curves.py`, `analysis/median_survival_tables.py` |
+| 7 | UMAP of slide embeddings | `analysis/umap_embeddings.py` |
+| 8 | Attention faithfulness (patch flipping) | `analysis/patch_flipping.py` |
+
+Steps 2 and 3 are run with the upstream CLAM/TRIDENT tooling rather than code in
+this repository; the sections below give the settings used in the paper.
 
 ---
 
@@ -102,25 +108,56 @@ fold, so no patient appears in both training and test.
 
 ---
 
-## 2. Feature extraction
+## 2. Patching and feature extraction (CLAM / TRIDENT)
 
-Tissue segmentation and patching follow CLAM (256x256 px at 20x). Each patch is
-then embedded with one of the pathology foundation models (11 domain-specific
-FMs plus an ImageNet-pretrained ResNet-50 baseline):
+Tissue segmentation and patching follow CLAM: non-overlapping **256 x 256 px
+patches at 20x**, background removed by Otsu thresholding on the downsampled
+slide.
 
-ResNet50 (ImageNet) · Lunit · GigaPath · CTransPath · Hibou · H-Optimus-1 ·
-Virchow2 · CONCHv1.5 · UNI2 · CHIEF · PRISM · TITAN
+```bash
+# Segmentation + patch coordinates (CLAM)
+python create_patches_fp.py \
+    --source  /path/to/slides --save_dir /path/to/patches \
+    --patch_size 256 --step_size 256 --seg --patch --stitch
+```
 
-Several are gated on Hugging Face. Request access, then:
+Each patch is then embedded with one of the **11 pathology foundation models**
+benchmarked in the paper, plus an ImageNet-pretrained ResNet-50 baseline:
+
+| Foundation model | Feature dim (`--in_dim`) |
+|------------------|--------------------------|
+| Lunit            | 384  |
+| CONCH v1         | 512  |
+| CTransPath       | 768  |
+| CHIEF            | 768  |
+| CONCH v1.5       | 768  |
+| TITAN            | 768  |
+| ResNet-50 (ImageNet baseline) | 1024 |
+| Hibou            | 1024 |
+| PRISM            | 1280 |
+| GigaPath         | 1536 |
+| H-Optimus-1      | 1536 |
+| UNI2             | 1536 |
+| Virchow2         | 2560 |
+
+```bash
+# Patch embeddings (CLAM / TRIDENT)
+python extract_features_fp.py \
+    --data_h5_dir /path/to/patches --data_slide_dir /path/to/slides \
+    --csv_path /path/to/patches/process_list_autogen.csv \
+    --feat_dir features/<fm_name> --model_name <fm_name> --batch_size 256
+```
+
+Several models are gated on Hugging Face. Request access, then export a token
+before extraction - tokens are never stored in this repository:
 
 ```bash
 export HF_TOKEN=<your_hugging_face_token>
 ```
 
-Tokens are never stored in this repository.
-
-Features are written as one `.pt` per slide under
-`features/<fm_name>/pt_files/`, which is git-ignored.
+Features are written as one `.pt` per slide under `features/<fm_name>/pt_files/`,
+which is git-ignored. **`--in_dim` at training time must match the table above**;
+a mismatch fails when the checkpoint is loaded, not when training starts.
 
 ---
 
@@ -141,9 +178,20 @@ python pipeline/main_survival.py \
     --seed          1
 ```
 
-`--model_type` accepts `mean_mil`, `max_mil`, `att_mil`, `dsmil`, `trans_mil`,
-`rrtmil`, `mamba_mil`. Set `--in_dim` to the feature dimension of the chosen
-foundation model.
+`--model_type` selects one of the **7 MIL aggregators** benchmarked in the paper:
+
+| `--model_type` | Aggregator |
+|----------------|------------|
+| `mean_mil`  | Mean pooling |
+| `max_mil`   | Max pooling |
+| `att_mil`   | ABMIL (gated attention) |
+| `dsmil`     | DSMIL |
+| `trans_mil` | TransMIL |
+| `rrtmil`    | RRT-MIL |
+| `mamba_mil` | MambaMIL (SR-Mamba) |
+
+Set `--in_dim` to the feature dimension of the chosen foundation model (see the
+table in section 2).
 
 Each fold writes `s_<k>_checkpoint.pt` and `split_<k>_results.pkl`
 (per-patient risk score, survival time, censorship).
@@ -198,7 +246,7 @@ Two conventions are reported, and they are **not interchangeable**:
 
 ---
 
-## 6. Figures and tables
+## 6. Kaplan-Meier curves and median-OS tables
 
 ```bash
 python analysis/plot_km_curves.py          # KM curves: all / oligo / astro / GBM
@@ -211,17 +259,57 @@ quartile}) as PNG and TIFF, with at-risk/censored tables beneath each panel.
 
 ---
 
-## 7. Attention faithfulness
+## 7. UMAP of slide embeddings
 
-Tests whether attention weights identify patches the model actually relies on:
-patches are ranked by attention, the top-X% progressively removed, and the
-c-index recomputed. A faithful model degrades faster under attention-guided
-removal than under random removal.
+Projects pooled slide embeddings to 2-D and colours them twice - once by
+predicted risk group, once by WHO 2021 type. Comparing the panels shows whether
+the embedding separates risk independently of subtype, or whether the apparent
+risk structure is mostly subtype structure.
 
 ```bash
-python analysis/robust_att.py      # attention-guided vs random patch ablation
-python analysis/robustness_fm.py   # same sweep across foundation models
+python analysis/umap_embeddings.py \
+    --features  features/uni_v2/pt_files \
+    --results   results/.../combined_results.csv \
+    --histology dataset_csv/df_2021_histology_labels.csv \
+    --in-dim    1536 \
+    --pooling   mean \
+    --out       results/umap
 ```
+
+`--pooling gated` applies gated-attention pooling instead of an unweighted mean.
+Requires `umap-learn`.
+
+---
+
+## 8. Attention faithfulness (patch flipping)
+
+Tests whether attention weights identify the patches the model actually relies
+on. Patches are ranked by attention and progressively removed, and the cohort
+c-index is recomputed at each removal step. Three orderings are compared:
+
+| Order | Patches removed first |
+|-------|----------------------|
+| `morf` | most relevant first (highest attention) |
+| `morl` | most relevant last (lowest attention) |
+| `random` | random baseline |
+
+A faithful model degrades fastest under `morf`, with `random` in between.
+Running `morf` alone cannot separate attention quality from the effect of simply
+having a smaller bag, so all three arms are reported.
+
+```bash
+python analysis/patch_flipping.py \
+    --features  features/uni_v2/pt_files \
+    --ckpt-dir  results/.../uni_v2_s1 \
+    --survival  results/.../combined_results.csv \
+    --in-dim    1536 \
+    --out       results/faithfulness
+```
+
+Outputs `patch_flipping_cindex.csv` and a curve per ordering. The protocol
+follows [xMIL](https://github.com/bifold-pathomics/xMIL) (NeurIPS 2024), adapted
+from classification to survival: the tracked quantity is the cohort c-index
+rather than a target-class probability.
 
 ---
 

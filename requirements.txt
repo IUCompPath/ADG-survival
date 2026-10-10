@@ -20,6 +20,9 @@ transformers>=4.35
 einops>=0.7
 huggingface-hub>=0.19
 
+# Dimensionality reduction
+umap-learn>=0.5.4
+
 # Plotting
 matplotlib>=3.7
 seaborn>=0.12
