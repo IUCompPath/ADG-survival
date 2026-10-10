@@ -100,7 +100,12 @@ Survival times are discretised into 4 quantile bins over uncensored patients
 Folds are regenerated with:
 
 ```bash
-python tools/splitting.py --task tcga_gbmlgg_survival --k 10 --seed 1
+python tools/make_splits.py \
+    --csv       dataset_csv/gbmlgg_processed_fixed.csv \
+    --histology dataset_csv/df_2021_histology_labels.csv \
+    --features  features/<BACKBONE>/pt_files \
+    --out       splits/tcga_gbmlgg_survival_kfold \
+    --k 10 --seed 1
 ```
 
 Splitting is **patient-level**: all slides from one patient stay in the same
@@ -110,54 +115,95 @@ fold, so no patient appears in both training and test.
 
 ## 2. Patching and feature extraction (CLAM / TRIDENT)
 
-Tissue segmentation and patching follow CLAM: non-overlapping **256 x 256 px
-patches at 20x**, background removed by Otsu thresholding on the downsampled
-slide.
+Slides are organised per dataset:
+
+```
+data/wsi/<DATASET>/
+    ├── patient_1_slide_a.svs
+    ├── patient_1_slide_b.svs
+    └── ...
+```
+
+### 2a. Tissue segmentation and patching
+
+Non-overlapping **256 x 256 px patches at 20x**, with background removed by
+Otsu thresholding on the downsampled slide. TCGA mixes 20x- and 40x-native
+slides, so the pyramid level is resolved per slide from its native objective
+power; a slide with no level at the target is read at the finer level with a
+proportionally larger window and resized, so every patch covers the same tissue
+area.
 
 ```bash
-# Segmentation + patch coordinates (CLAM)
 python create_patches_fp.py \
-    --source  /path/to/slides --save_dir /path/to/patches \
-    --patch_size 256 --step_size 256 --seg --patch --stitch
+    --source      data/wsi/<DATASET> \
+    --save_dir    data/patches/<DATASET>/20x \
+    --patch_size 256 --step_size 256 \
+    --seg --patch --stitch
 ```
 
-Each patch is then embedded with one of the **11 pathology foundation models**
-benchmarked in the paper, plus an ImageNet-pretrained ResNet-50 baseline:
+```
+data/patches/<DATASET>/20x/
+    ├── masks/        # segmentation overlays (QC)
+    ├── patches/      # per-slide .h5 of patch coordinates
+    ├── stitches/     # downsampled reconstructions (QC)
+    └── slides_processed.csv
+```
 
-| Foundation model | Feature dim (`--in_dim`) |
-|------------------|--------------------------|
-| Lunit            | 384  |
-| CONCH v1         | 512  |
-| CTransPath       | 768  |
-| CHIEF            | 768  |
-| CONCH v1.5       | 768  |
-| TITAN            | 768  |
-| ResNet-50 (ImageNet baseline) | 1024 |
-| Hibou            | 1024 |
-| PRISM            | 1280 |
-| GigaPath         | 1536 |
-| H-Optimus-1      | 1536 |
-| UNI2             | 1536 |
-| Virchow2         | 2560 |
+An optional cleanup pass removes low-quality tiles: patches with >85% white
+space, patches failing HED colour-deconvolution stain detection, and blurry or
+out-of-focus regions flagged by HSV thresholds.
+
+### 2b. Patch-level feature extraction
+
+Each patch is embedded with one of the **11 pathology foundation models**
+benchmarked in the paper, plus an ImageNet-pretrained ResNet-50 baseline.
 
 ```bash
-# Patch embeddings (CLAM / TRIDENT)
 python extract_features_fp.py \
-    --data_h5_dir /path/to/patches --data_slide_dir /path/to/slides \
-    --csv_path /path/to/patches/process_list_autogen.csv \
-    --feat_dir features/<fm_name> --model_name <fm_name> --batch_size 256
+    --data_h5_dir   data/patches/<DATASET>/20x \
+    --data_slide_dir data/wsi/<DATASET> \
+    --csv_path      data/patches/<DATASET>/20x/slides_processed.csv \
+    --feat_dir      features/<BACKBONE> \
+    --model_name    <BACKBONE> --batch_size 256
 ```
 
-Several models are gated on Hugging Face. Request access, then export a token
+```
+features/<BACKBONE>/
+    ├── h5_files/     # patch features + coordinates
+    └── pt_files/     # serialised tensors, used for training
+```
+
+Training reads `pt_files/`. **`--in_dim` must match the backbone**, or the
+state dict will not load:
+
+| Foundation model | `--in_dim` | Source |
+|------------------|-----------|--------|
+| Lunit ViT   | 384  | [lunit-io/benchmark-ssl-pathology](https://github.com/lunit-io/benchmark-ssl-pathology) |
+| CONCH v1    | 512  | [mahmoodlab/CONCH](https://github.com/mahmoodlab/CONCH) |
+| CTransPath  | 768  | [Xiyue-Wang/TransPath](https://github.com/Xiyue-Wang/TransPath) |
+| CHIEF       | 768  | [hms-dbmi/CHIEF](https://github.com/hms-dbmi/CHIEF) |
+| CONCH v1.5  | 768  | [mahmoodlab/CONCH](https://github.com/mahmoodlab/CONCH) |
+| TITAN       | 768  | [mahmoodlab/TITAN](https://huggingface.co/MahmoodLab/TITAN) |
+| ResNet-50   | 1024 | ImageNet pretrained (baseline) |
+| Hibou       | 1024 | [HistAI/hibou](https://github.com/HistAI/hibou) |
+| PRISM       | 1280 | [paige-ai/Prism](https://huggingface.co/paige-ai/Prism) |
+| GigaPath    | 1536 | [prov-gigapath](https://github.com/prov-gigapath/prov-gigapath) |
+| H-Optimus-1 | 1536 | [bioptimus/h-optimus](https://github.com/bioptimus/releases/tree/main/models/h-optimus) |
+| UNI2        | 1536 | [mahmoodlab/UNI](https://github.com/mahmoodlab/UNI) |
+| Virchow2    | 2560 | [paige-ai/Virchow2](https://huggingface.co/paige-ai/Virchow2) |
+
+Several are gated. Request access on each model page, then export a token
 before extraction - tokens are never stored in this repository:
 
 ```bash
 export HF_TOKEN=<your_hugging_face_token>
 ```
 
-Features are written as one `.pt` per slide under `features/<fm_name>/pt_files/`,
-which is git-ignored. **`--in_dim` at training time must match the table above**;
-a mismatch fails when the checkpoint is loaded, not when training starts.
+> Patching and feature extraction use the upstream
+> [CLAM](https://github.com/mahmoodlab/CLAM) tooling.
+> [TRIDENT](https://github.com/mahmoodlab/TRIDENT) is its successor and offers a
+> more scalable pipeline for the same two stages; either can produce the
+> `pt_files/` this repository consumes.
 
 ---
 
@@ -337,18 +383,75 @@ If you use this code, please cite the paper and the upstream work it builds on:
 
 ```bibtex
 @inproceedings{yang2024mambamil,
-  title     = {MambaMIL: Enhancing Long Sequence Modeling with Sequence Reordering in Computational Pathology},
+  title     = {{MambaMIL}: Enhancing Long Sequence Modeling with Sequence Reordering in Computational Pathology},
   author    = {Yang, Shu and Wang, Yihui and Chen, Hao},
-  booktitle = {MICCAI},
+  booktitle = {Medical Image Computing and Computer Assisted Intervention (MICCAI)},
+  year      = {2024}
+}
+
+@article{lu2021clam,
+  title   = {Data-efficient and weakly supervised computational pathology on whole-slide images},
+  author  = {Lu, Ming Y. and Williamson, Drew F. K. and Chen, Tiffany Y. and
+             Chen, Richard J. and Barbieri, Matteo and Mahmood, Faisal},
+  journal = {Nature Biomedical Engineering},
+  volume  = {5},
+  number  = {6},
+  pages   = {555--570},
+  year    = {2021},
+  doi     = {10.1038/s41551-020-00682-w}
+}
+
+@article{zhang2025trident,
+  title   = {Accelerating Data Processing and Benchmarking of {AI} Models for Pathology},
+  author  = {Zhang, Andrew and Jaume, Guillaume and Vaidya, Anurag and
+             Ding, Tong and Mahmood, Faisal},
+  journal = {arXiv preprint arXiv:2502.06750},
+  year    = {2025},
+  url     = {https://github.com/mahmoodlab/TRIDENT}
+}
+
+@inproceedings{hense2024xmil,
+  title     = {{xMIL}: Insightful Explanations for Multiple Instance Learning in Histopathology},
+  author    = {Hense, Julius and Jamshidi Idaji, Mina and Eberle, Oliver and
+               Schnake, Thomas and Dippel, Jonas and Ciernik, Laure and
+               Buchstab, Oliver and Mock, Andreas and Klauschen, Frederick and
+               M\"{u}ller, Klaus-Robert},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  volume    = {37},
+  pages     = {8300--8328},
   year      = {2024}
 }
 ```
 
 ## Acknowledgements
 
-Built on [MambaMIL](https://github.com/isyangshu/MambaMIL) and
-[CLAM](https://github.com/mahmoodlab/CLAM).
+The MIL backbone and bundled Mamba CUDA kernels are adapted from
+[MambaMIL](https://github.com/isyangshu/MambaMIL) (MICCAI 2024). Patching and
+feature-extraction tooling follows [CLAM](https://github.com/mahmoodlab/CLAM),
+with [TRIDENT](https://github.com/mahmoodlab/TRIDENT) as its successor for
+high-throughput WSI processing. The faithfulness protocol follows
+[xMIL](https://github.com/bifold-pathomics/xMIL) (NeurIPS 2024). Survival
+labels were cross-checked against
+[PORPOISE](https://github.com/mahmoodlab/PORPOISE),
+[PathomicFusion](https://github.com/mahmoodlab/PathomicFusion) and
+[LinkedOmics](https://linkedomics.org/).
+
+We thank the authors of each pathology foundation model listed in section 2 for
+releasing their weights.
 
 ## License
 
-MIT (inherited from MambaMIL).
+Released under the MIT License, inherited from
+[MambaMIL](https://github.com/isyangshu/MambaMIL); see `LICENSE`.
+
+**Research use only.** This code is provided for academic research and is not a
+medical device. Nothing here is validated or approved for clinical use,
+diagnosis or treatment decisions. As reported in the paper, the risk score did
+not show independent prognostic value in the fully adjusted model
+(HR = 1.32, 95% CI 0.94-1.85, p = 0.104), its discrimination largely reflects
+differences between WHO 2021 types, and external validation has not been
+performed.
+
+Each pathology foundation model in section 2 carries its own licence and access
+terms; obtain and comply with those separately. TCGA data use is governed by the
+[NIH Genomic Data Sharing Policy](https://gdc.cancer.gov/about-data/publications/publicationguidelines).
