@@ -360,6 +360,10 @@ class Generic_MIL_Survival_Dataset(Generic_WSI_Survival_Dataset):
         self.data_dir = data_dir
         self.mode = mode
         self.use_h5 = False
+        # Slide-level feature cache, shared across epochs. Populated by
+        # pre_loading(); empty means every __getitem__ reads from disk.
+        self.cache_flag = False
+        self._feat_cache = {}
 
     def load_from_h5(self, toggle):
         self.use_h5 = toggle
@@ -382,9 +386,7 @@ class Generic_MIL_Survival_Dataset(Generic_WSI_Survival_Dataset):
                 if self.mode == 'path':
                     path_features = []
                     for slide_id in slide_ids:
-                        # wsi_path = os.path.join(data_dir, 'pt_files', '{}.pt'.format(slide_id.rstrip('.svs')))
-                        wsi_path = os.path.join(data_dir, '{}.pt'.format(slide_id.rstrip('.svs')))
-                        wsi_bag = torch.load(wsi_path)
+                        wsi_bag = self._load_slide(data_dir, slide_id)
                         path_features.append(wsi_bag)
                     path_features = torch.cat(path_features, dim=0)
                     return (path_features, torch.zeros((1,1)), label, event_time, c)
@@ -439,8 +441,15 @@ class Generic_MIL_Survival_Dataset(Generic_WSI_Survival_Dataset):
 
 
 class Generic_Split(Generic_MIL_Survival_Dataset):
+    # One feature cache shared by every split of every fold: a slide read for
+    # fold 0's training set is reused by fold 3's test set, so the whole
+    # feature set is read from disk exactly once per process.
+    _shared_cache = {}
+
     def __init__(self, slide_data, metadata, mode, signatures=None, data_dir=None, label_col=None, patient_dict=None, num_classes=2):
         self.use_h5 = False
+        self.cache_flag = False
+        self._feat_cache = Generic_Split._shared_cache
         self.slide_data = slide_data
         self.metadata = metadata
         self.mode = mode
@@ -503,11 +512,50 @@ class Generic_Split(Generic_MIL_Survival_Dataset):
         print('Setting Patchsize:', size)
         self.patch_size = size
 
-    def pre_loading(self, thread=8):
-        # set flag
-        self.cache_flag = True
+    def _load_slide(self, data_dir, slide_id):
+        """Return one slide's features, from the in-memory cache when warm."""
+        key = slide_id.rstrip('.svs')
+        if self.cache_flag:
+            hit = self._feat_cache.get(key)
+            if hit is not None:
+                return hit
+        bag = torch.load(os.path.join(data_dir, '{}.pt'.format(key)))
+        if self.cache_flag:
+            self._feat_cache[key] = bag
+        return bag
 
-        ids = list(range(len(self)))
+    def pre_loading(self, thread=8):
+        """Read every slide once into RAM so later epochs do no disk I/O.
+
+        The previous implementation only set a flag and called __getitem__,
+        which cached nothing - every epoch re-read the full feature set from
+        disk. Features stay on the CPU in fp32; with batch size 1 the per-bag
+        transfer to the GPU is negligible next to the disk read it replaces.
+        """
         from multiprocessing.pool import ThreadPool
-        exe = ThreadPool(thread)
-        exe.map(self.__getitem__, ids)
+
+        self.cache_flag = True
+        if type(self.data_dir) == dict:
+            dirs = {src: d for src, d in self.data_dir.items()}
+        else:
+            dirs = None
+
+        slide_ids = []
+        for case_id in self.slide_data['case_id'].unique():
+            slide_ids.extend(self.patient_dict[case_id])
+        slide_ids = list(dict.fromkeys(slide_ids))
+
+        def _warm(slide_id):
+            try:
+                d = self.data_dir if dirs is None else next(iter(dirs.values()))
+                self._load_slide(d, slide_id)
+            except Exception as exc:
+                print(f"  preload failed for {slide_id}: {exc}")
+
+        with ThreadPool(thread) as exe:
+            exe.map(_warm, slide_ids)
+
+        n_patch = sum(v.shape[0] for v in self._feat_cache.values())
+        gb = sum(v.element_size() * v.nelement() for v in self._feat_cache.values()) / 1e9
+        print(f"  preloaded {len(self._feat_cache)} slides "
+              f"({n_patch:,} patches, {gb:.1f} GB) into RAM")

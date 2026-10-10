@@ -1,4 +1,6 @@
 from __future__ import print_function
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
 import os
@@ -8,7 +10,7 @@ from timeit import default_timer as timer
 from utils.file_utils import save_pkl
 from utils.utils import *
 from utils.survival_core_utils import train
-from dataset.dataset_survival import Generic_MIL_Survival_Dataset
+from dataset_modules.dataset_survival import Generic_MIL_Survival_Dataset
 
 # pytorch imports
 import torch
@@ -174,6 +176,7 @@ parser.add_argument('--backbone', type=str, default='tcga_20x_uni')
 parser.add_argument('--patch_size', type=str, default=256)
 parser.add_argument('--preloading', type=str, default='no')
 parser.add_argument('--in_dim', type=int, default=1024)
+parser.add_argument('--csv_path', type=str, default=None, help='explicit label CSV; overrides the task-derived default')
 parser.add_argument('--k_fold', type=bool, default=False, help='k fold for cross validation')
 
 ## mambamil
@@ -234,7 +237,7 @@ if 'survival' in args.task:
     # study_dir = '%s_20x_features' % combined_study
     #study_dir = 'pt_files/%s' % args.backbone
     study_dir = 'features/'+args.backbone+'/pt_files'
-    dataset = Generic_MIL_Survival_Dataset(csv_path = 'dataset_csv/%s_processed.csv' % combined_study,
+    dataset = Generic_MIL_Survival_Dataset(csv_path = args.csv_path if getattr(args,'csv_path',None) else 'dataset_csv/%s_processed.csv' % combined_study,
                                             mode = args.mode,
                                             apply_sig = args.apply_sig,
                                             data_dir= args.data_root_dir, #! cluster.pkl should be as same as data_dir
@@ -243,7 +246,7 @@ if 'survival' in args.task:
                                             print_info = True,
                                             patient_strat= False,
                                             n_bins=4,
-                                            label_col = 'Survival_months',
+                                            label_col = 'survival_months',
                                             ignore=[])
 else:
 	raise NotImplementedError

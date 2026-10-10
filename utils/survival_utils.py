@@ -87,7 +87,14 @@ def get_split_loader(split_dataset, training = False, testing = False, weighted 
     else:
         collate = collate_MIL_survival
 
-    kwargs = {'num_workers': 4} if device.type == "cuda" else {}
+    # When the dataset has been preloaded into RAM, worker processes would each
+    # get a copy-on-write copy of the cache and re-read from disk anyway, so
+    # read in-process instead. Otherwise keep workers to hide disk latency.
+    preloaded = getattr(split_dataset, 'cache_flag', False)
+    if device.type == "cuda":
+        kwargs = {'num_workers': 0} if preloaded else {'num_workers': 4}
+    else:
+        kwargs = {}
     if not testing:
         if training:
             if weighted:

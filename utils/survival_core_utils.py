@@ -9,7 +9,7 @@ from sksurv.metrics import concordance_index_censored
 
 import torch
 
-from dataset.dataset_generic import save_splits
+from dataset_modules.dataset_generic import save_splits
 from utils.survival_utils import *
 import wandb
 

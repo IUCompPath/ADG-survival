@@ -36,3 +36,9 @@ merged_with_risk.csv
 # Mamba build artifacts
 mamba/build/
 mamba/*.egg-info/
+
+# Label-correction helper (kept local; the corrected CSV itself is committed)
+tools/fix_survival_labels.py
+
+# Training logs
+logs/

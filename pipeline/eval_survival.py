@@ -1,4 +1,6 @@
 from __future__ import print_function
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import argparse
@@ -9,7 +11,7 @@ import pandas as pd
 # Internal imports
 from utils.utils import *
 from utils.eval_utils import eval_survival # <-- Corrected import based on reference
-from dataset.dataset_survival import Generic_MIL_Survival_Dataset
+from dataset_modules.dataset_survival import Generic_MIL_Survival_Dataset
 
 
 # --- Evaluation settings ---

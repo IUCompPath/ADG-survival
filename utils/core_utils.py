@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from utils.utils import *
 import os
-from dataset.dataset_generic import save_splits
+from dataset_modules.dataset_generic import save_splits
 from sklearn.preprocessing import label_binarize
 from sklearn.metrics import roc_auc_score, roc_curve
 from sklearn.metrics import auc as calc_auc
