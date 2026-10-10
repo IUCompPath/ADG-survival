@@ -70,12 +70,26 @@ analysis cohort is **817 patients**.
 
 | File | Contents |
 |------|----------|
-| `dataset_csv/gbmlgg_processed.csv` | `case_id`, `slide_id`, `survival_months`, `censorship` |
+| `dataset_csv/gbmlgg_processed_fixed.csv` | `case_id`, `slide_id`, `survival_months`, `censorship` |
 | `dataset_csv/df_2021_histology_labels.csv` | WHO CNS5 subtype (oligodendroglioma / astrocytoma / glioblastoma) |
 | `splits/tcga_gbmlgg_survival_kfold/` | 10 patient-level train/val/test folds |
 
 Survival times are discretised into 4 quantile bins over uncensored patients
 (`n_bins=4`), as in the standard TCGA survival-MIL setup.
+
+> **Survival labels.** `gbmlgg_processed_fixed.csv` is the authoritative label
+> file. An earlier version of this table carried two defects: `survival_months`
+> disagreed with the day count for ~42% of patients (one case stored 117 months
+> as 4.7), and `censorship` was inverted relative to the convention used by
+> `nll_surv` and every c-index call. The corrected file was cross-checked
+> against [PORPOISE](https://github.com/mahmoodlab/PORPOISE), LinkedOmics and
+> [PathomicFusion](https://github.com/mahmoodlab/PathomicFusion), agreeing
+> 735/735 on the overlapping patients. `censorship` is **1 = censored**.
+>
+> Cohort sizes: **817** patients have survival; the **656** with WHO 2021
+> labels are exactly the 656 with extracted features. The 161 excluded
+> patients are enriched for events (132/161, 82%) relative to the retained
+> cohort (44%), so the exclusion is not random.
 
 Folds are regenerated with:
 

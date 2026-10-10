@@ -42,3 +42,6 @@ tools/fix_survival_labels.py
 
 # Training logs
 logs/
+
+# Superseded uncorrected label file (see gbmlgg_processed_fixed.csv)
+dataset_csv/gbmlgg_processed.csv
