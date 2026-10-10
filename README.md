@@ -439,20 +439,22 @@ labels were cross-checked against
 We thank the authors of each pathology foundation model listed in section 2 for
 releasing their weights.
 
-## License
+## License and disclaimer
 
-This repository builds on, and incorporates code from, several upstream
-projects. **Refer to the original repositories for their licence terms:**
+This repository builds on and incorporates code from the upstream projects
+listed below. **Their original licence terms apply to that code** - refer to
+each repository for the terms you must follow:
 
 - [CLAM](https://github.com/mahmoodlab/CLAM)
 - [TRIDENT](https://github.com/mahmoodlab/TRIDENT)
 - [MambaMIL](https://github.com/isyangshu/MambaMIL)
 - [xMIL](https://github.com/bifold-pathomics/xMIL)
-- the pathology foundation models listed in section 2
+- the pathology foundation models listed in section 2, each of which carries
+  its own licence and access terms
 
-**Research use only.** This code is provided for academic research and is not a
-medical device. Nothing here is validated or approved for clinical use,
-diagnosis or treatment decisions.
+**Research use only.** This code is provided for academic research, as-is and
+without warranty of any kind. It is not a medical device and has not been
+validated or approved for clinical use, diagnosis or treatment decisions.
 
 TCGA data use is governed by the
 [NIH Genomic Data Sharing Policy](https://gdc.cancer.gov/about-data/publications/publicationguidelines).
