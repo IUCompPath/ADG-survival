@@ -441,17 +441,18 @@ releasing their weights.
 
 ## License
 
-Released under the MIT License, inherited from
-[MambaMIL](https://github.com/isyangshu/MambaMIL); see `LICENSE`.
+This repository builds on, and incorporates code from, several upstream
+projects. **Refer to the original repositories for their licence terms:**
+
+- [CLAM](https://github.com/mahmoodlab/CLAM)
+- [TRIDENT](https://github.com/mahmoodlab/TRIDENT)
+- [MambaMIL](https://github.com/isyangshu/MambaMIL)
+- [xMIL](https://github.com/bifold-pathomics/xMIL)
+- the pathology foundation models listed in section 2
 
 **Research use only.** This code is provided for academic research and is not a
 medical device. Nothing here is validated or approved for clinical use,
-diagnosis or treatment decisions. As reported in the paper, the risk score did
-not show independent prognostic value in the fully adjusted model
-(HR = 1.32, 95% CI 0.94-1.85, p = 0.104), its discrimination largely reflects
-differences between WHO 2021 types, and external validation has not been
-performed.
+diagnosis or treatment decisions.
 
-Each pathology foundation model in section 2 carries its own licence and access
-terms; obtain and comply with those separately. TCGA data use is governed by the
+TCGA data use is governed by the
 [NIH Genomic Data Sharing Policy](https://gdc.cancer.gov/about-data/publications/publicationguidelines).
