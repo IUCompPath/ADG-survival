@@ -290,9 +290,11 @@ def train(datasets: tuple, cur: int, args: Namespace):
     if (not args.k_fold):
         results_dict, test_cindex = summary_survival(model, test_loader, args.n_classes)
         print('Test c-Index: {:.4f}'.format(test_cindex))
-        writer.close()
+        if writer is not None:
+            writer.close()
         return results_dict, test_cindex, val_cindex
-    writer.close()
+    if writer is not None:
+        writer.close()
     return val_cindex
 
 def train_loop_survival(epoch, model, loader, optimizer, n_classes, writer=None, loss_fn=None, reg_fn=None, lambda_reg=0., gc=16):   

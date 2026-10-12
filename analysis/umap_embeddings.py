@@ -91,34 +91,54 @@ def load_labels(results_csv, histology_csv):
             for row in m.itertuples()}
 
 
-def embed_slides(feature_dir, labels, pooling, in_dim, max_slides=None):
-    files = sorted(glob.glob(os.path.join(feature_dir, 'TCGA-*.pt')))
-    files = [f for f in files if case_of(os.path.basename(f)[:-3]) in labels]
-    if max_slides:
-        files = files[:max_slides]
-    if not files:
-        raise SystemExit('No feature files matched the label table.')
+def embed_patients(feature_dir, labels, pooling, in_dim, max_cases=None):
+    """One embedding per PATIENT.
+
+    The MIL model is trained on patient-level bags (dataset_survival.py
+    concatenates every slide belonging to a patient), and risk scores are
+    per patient, so slides are concatenated before pooling rather than
+    embedded individually.
+    """
+    by_case = {}
+    for f in sorted(glob.glob(os.path.join(feature_dir, 'TCGA-*.pt'))):
+        case = case_of(os.path.basename(f)[:-3])
+        if case in labels:
+            by_case.setdefault(case, []).append(f)
+
+    cases = sorted(by_case)
+    if max_cases and max_cases < len(cases):
+        # Random subset, not the alphabetically first N: TCGA barcodes encode
+        # tissue source site, so a head slice is biased toward a few institutions.
+        rs = np.random.default_rng(0)
+        cases = sorted(rs.choice(cases, max_cases, replace=False).tolist())
+    if not cases:
+        raise SystemExit('No patients matched the label table.')
 
     attn = None
     if pooling == 'gated':
         attn = AttnNetGated(L=in_dim, D=256).to(DEVICE).eval()
-        print('  gated attention is randomly initialised: it shows the pooling '
-              'geometry, not a trained model\'s attention')
+        print("  gated attention is randomly initialised: it shows the pooling "
+              "geometry, not a trained model's attention")
 
     fn = pool_gated if pooling == 'gated' else pool_mean
     vecs, rows = [], []
-    for i, f in enumerate(files, 1):
-        x = torch.load(f, map_location=DEVICE)
-        if isinstance(x, dict):
-            x = x.get('features', next(iter(x.values())))
-        x = x.float().to(DEVICE)
-        vecs.append(fn(x, attn).cpu().numpy())
-        case = case_of(os.path.basename(f)[:-3])
-        rows.append((case,) + labels[case])
+    for i, case in enumerate(cases, 1):
+        bags = []
+        for f in by_case[case]:
+            x = torch.load(f, map_location=DEVICE)
+            if isinstance(x, dict):
+                x = x.get('features', next(iter(x.values())))
+            x = x.float()
+            if x.ndim == 1:
+                x = x.unsqueeze(0)
+            bags.append(x)
+        bag = torch.cat(bags, dim=0).to(DEVICE)
+        vecs.append(fn(bag, attn).cpu().numpy())
+        rows.append((case,) + labels[case] + (len(by_case[case]),))
         if i % 100 == 0:
-            print(f'  {i}/{len(files)} slides')
+            print(f'  {i}/{len(cases)} patients', flush=True)
 
-    meta = pd.DataFrame(rows, columns=['case_id', 'risk_group', 'subtype'])
+    meta = pd.DataFrame(rows, columns=['case_id', 'risk_group', 'subtype', 'n_slides'])
     return np.vstack(vecs), meta
 
 
@@ -142,7 +162,8 @@ def main():
     ap.add_argument('--in-dim', type=int, required=True)
     ap.add_argument('--out', default='results/umap')
     ap.add_argument('--pooling', choices=['mean', 'gated'], default='mean')
-    ap.add_argument('--max-slides', type=int, default=None)
+    ap.add_argument('--max-slides', type=int, default=None,
+                    help='random subset of this many PATIENTS (smoke test only)')
     ap.add_argument('--n-neighbors', type=int, default=15)
     ap.add_argument('--min-dist', type=float, default=0.1)
     ap.add_argument('--seed', type=int, default=0)
@@ -158,9 +179,10 @@ def main():
     labels = load_labels(args.results, args.histology)
     print(f'{len(labels)} patients with risk group and subtype')
 
-    X, meta = embed_slides(args.features, labels, args.pooling,
-                           args.in_dim, args.max_slides)
-    print(f'embedded {X.shape[0]} slides, dim {X.shape[1]}')
+    X, meta = embed_patients(args.features, labels, args.pooling,
+                             args.in_dim, args.max_slides)
+    print(f'embedded {X.shape[0]} patients '
+          f'({int(meta.n_slides.sum())} slides), dim {X.shape[1]}')
 
     emb = umap.UMAP(n_neighbors=args.n_neighbors, min_dist=args.min_dist,
                     random_state=args.seed).fit_transform(X)
@@ -171,7 +193,8 @@ def main():
     scatter(axes[1], emb, meta.subtype, 'By WHO 2021 type',
             {'Oligodendroglioma': 'tab:blue', 'Astrocytoma': 'tab:green',
              'Glioblastoma': 'tab:red', 'Unknown': 'lightgrey'})
-    fig.suptitle(f'UMAP of slide embeddings ({args.pooling} pooling)', fontsize=15)
+    fig.suptitle(f'UMAP of patient-level embeddings ({args.pooling} pooling, '
+                 f'n={X.shape[0]} patients)', fontsize=15)
     fig.tight_layout()
 
     png = os.path.join(args.out, f'umap_{args.pooling}.png')
