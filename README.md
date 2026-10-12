@@ -37,7 +37,7 @@ feature-extraction utilities follow [CLAM](https://github.com/mahmoodlab/CLAM).
 | 4b | Evaluation | `pipeline/eval_survival.py` |
 | 5 | C-index, confidence intervals, statistics | `analysis/cindex_stats.py`, `analysis/survival_results_all_.py` |
 | 6 | Kaplan-Meier curves and median-OS tables | `analysis/plot_km_curves.py`, `analysis/median_survival_tables.py` |
-| 7 | UMAP of slide embeddings | `analysis/umap_embeddings.py` |
+| 7 | UMAP of patient embeddings | `analysis/umap_embeddings.py` |
 | 8 | Attention faithfulness (patch flipping) | `analysis/patch_flipping.py` |
 
 Steps 2 and 3 are run with the upstream CLAM/TRIDENT tooling rather than code in
@@ -300,57 +300,103 @@ quartile}) as PNG and TIFF, with at-risk/censored tables beneath each panel.
 
 ---
 
-## 7. UMAP of slide embeddings
+## 7. UMAP of patient embeddings
 
-Projects pooled slide embeddings to 2-D and colours them twice - once by
-predicted risk group, once by WHO 2021 type. Comparing the panels shows whether
-the embedding separates risk independently of subtype, or whether the apparent
-risk structure is mostly subtype structure.
+Projects each patient's pooled embedding to 2-D and colours the same points
+twice: by predicted risk group and by WHO 2021 type. If the two panels show the
+same structure, the risk separation the model learns is largely the subtype
+separation.
 
 ```bash
 python analysis/umap_embeddings.py \
-    --features  features/uni_v2/pt_files \
-    --results   results/.../combined_results.csv \
+    --features  features/<BACKBONE>/pt_files \
+    --results   results/<EXP>/combined_results.csv \
     --histology dataset_csv/df_2021_histology_labels.csv \
     --in-dim    1536 \
     --pooling   mean \
     --out       results/umap
 ```
 
-`--pooling gated` applies gated-attention pooling instead of an unweighted mean.
-Requires `umap-learn`.
+**How it works**
+
+1. Every slide belonging to a patient is concatenated into one bag, matching how
+   `dataset_survival.py` builds model inputs. One point per patient, not per
+   slide - otherwise a patient with 17 slides would contribute 17 points.
+2. The bag is pooled to a single vector: `--pooling mean` averages patches,
+   `--pooling gated` applies gated attention (randomly initialised, so it shows
+   the pooling geometry rather than a trained model's attention).
+3. Risk groups come from `combined_results.csv`, split at the cohort median of
+   the out-of-fold risk score. Lower score = higher risk, matching the KM scripts.
+4. UMAP is fitted with a fixed `--seed`, so the layout is reproducible.
+
+| Output | Contents |
+|--------|----------|
+| `umap_<pooling>.png` / `.tiff` | two-panel figure, 300 dpi |
+| `umap_<pooling>_coords.csv` | `case_id`, risk group, subtype, `n_slides`, 2-D coordinates |
+
+The coordinates CSV lets the same embedding be recoloured by any other variable
+- tissue source site, grade, IDH status - without recomputing it.
 
 ---
 
 ## 8. Attention faithfulness (patch flipping)
 
 Tests whether attention weights identify the patches the model actually relies
-on. Patches are ranked by attention and progressively removed, and the cohort
-c-index is recomputed at each removal step. Three orderings are compared:
-
-| Order | Patches removed first |
-|-------|----------------------|
-| `morf` | most relevant first (highest attention) |
-| `morl` | most relevant last (lowest attention) |
-| `random` | random baseline |
-
-A faithful model degrades fastest under `morf`, with `random` in between.
-Running `morf` alone cannot separate attention quality from the effect of simply
-having a smaller bag, so all three arms are reported.
+on. Patches are ranked by attention, progressively removed, and the cohort
+c-index recomputed at each step.
 
 ```bash
 python analysis/patch_flipping.py \
-    --features  features/uni_v2/pt_files \
-    --ckpt-dir  results/.../uni_v2_s1 \
-    --survival  results/.../combined_results.csv \
-    --in-dim    1536 \
-    --out       results/faithfulness
+    --features   features/<BACKBONE>/pt_files \
+    --ckpt-dir   results/<EXP> \
+    --survival   results/<EXP>/combined_results.csv \
+    --in-dim     1536 \
+    --n-folds    5 \
+    --model-type att_mil \
+    --full-curve --n-random 3 --cache cpu \
+    --out        results/faithfulness
 ```
 
-Outputs `patch_flipping_cindex.csv` and a curve per ordering. The protocol
-follows [xMIL](https://github.com/bifold-pathomics/xMIL) (NeurIPS 2024), adapted
-from classification to survival: the tracked quantity is the cohort c-index
-rather than a target-class probability.
+**How it works**
+
+1. **Patient-level bags.** Every slide of a patient is concatenated before the
+   forward pass, as in training.
+2. **Out-of-fold scoring.** Each patient is scored only by the fold that held
+   them out, read from the `splits_*.csv` saved beside the checkpoints. Scoring
+   with all folds would make four of five predictions in-sample and mask the
+   effect of removal (`--all-folds` reproduces that behaviour for comparison).
+3. **Attention ranking.** Patches are ranked by the held-out model's own
+   attention over that patient's bag, so the percentile is per patient: a
+   10,000-patch bag drops 100 patches at 1%, a 1,000-patch bag drops 10.
+4. **Three orderings**, each re-scored at every removal level:
+
+   | Order | Patches removed first | Expected |
+   |-------|----------------------|----------|
+   | `morf` | highest attention | c-index falls fastest |
+   | `morl` | lowest attention | c-index flat or rising |
+   | `random` | random, averaged over `--n-random` draws | in between |
+
+   Reporting `morf` alone cannot separate attention quality from the effect of
+   simply having a smaller bag, so all three are computed.
+5. **Removal grid.** `--full-curve` follows xMIL's `1%-of-all` strategy: 1%
+   steps from 0 to 100%, scoring an all-zero bag at 100% so the cohort stays
+   constant. `--percents 0 1 2 5 10 ...` sets an explicit grid instead.
+6. **Caching.** Each patient's bag is revisited once per removal level and
+   ordering, so `--cache cpu` (or `gpu`, with `--half` for fp16) keeps the
+   filesystem out of that loop.
+
+**Sanity check.** At 0% removed the curve must reproduce the model's stored
+out-of-fold c-index - nothing has been perturbed. If it does not, the bagging or
+fold assignment is wrong.
+
+| Output | Contents |
+|--------|----------|
+| `patch_flipping_cindex.csv` | `order`, `percent_removed`, `n_slides`, `c_index` |
+| `patch_flipping_curve.png` | one curve per ordering |
+
+The protocol follows [xMIL](https://github.com/bifold-pathomics/xMIL)
+(NeurIPS 2024), adapted from classification to survival: the tracked quantity is
+the cohort c-index rather than a target-class probability.
 
 ---
 
