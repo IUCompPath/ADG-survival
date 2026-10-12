@@ -83,14 +83,9 @@ analysis cohort is **817 patients**.
 Survival times are discretised into 4 quantile bins over uncensored patients
 (`n_bins=4`), as in the standard TCGA survival-MIL setup.
 
-> **Survival labels.** `gbmlgg_processed_fixed.csv` is the authoritative label
-> file. An earlier version of this table carried two defects: `survival_months`
-> disagreed with the day count for ~42% of patients (one case stored 117 months
-> as 4.7), and `censorship` was inverted relative to the convention used by
-> `nll_surv` and every c-index call. The corrected file was cross-checked
-> against [PORPOISE](https://github.com/mahmoodlab/PORPOISE), LinkedOmics and
-> [PathomicFusion](https://github.com/mahmoodlab/PathomicFusion), agreeing
-> 735/735 on the overlapping patients. `censorship` is **1 = censored**.
+> **Survival labels.** `gbmlgg_processed_fixed.csv` is the label file used
+> throughout. `censorship` follows the convention **1 = censored**, as expected
+> by `nll_surv` and every c-index call.
 >
 > Cohort sizes: **817** patients have survival; the **656** with WHO 2021
 > labels are exactly the 656 with extracted features. The 161 excluded
@@ -430,11 +425,7 @@ The MIL backbone and bundled Mamba CUDA kernels are adapted from
 feature-extraction tooling follows [CLAM](https://github.com/mahmoodlab/CLAM),
 with [TRIDENT](https://github.com/mahmoodlab/TRIDENT) as its successor for
 high-throughput WSI processing. The faithfulness protocol follows
-[xMIL](https://github.com/bifold-pathomics/xMIL) (NeurIPS 2024). Survival
-labels were cross-checked against
-[PORPOISE](https://github.com/mahmoodlab/PORPOISE),
-[PathomicFusion](https://github.com/mahmoodlab/PathomicFusion) and
-[LinkedOmics](https://linkedomics.org/).
+[xMIL](https://github.com/bifold-pathomics/xMIL) (NeurIPS 2024).
 
 We thank the authors of each pathology foundation model listed in section 2 for
 releasing their weights.
