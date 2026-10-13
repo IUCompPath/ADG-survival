@@ -62,6 +62,19 @@ pip install -r requirements.txt
 cd mamba && pip install . && cd ..
 ```
 
+### Smoke test (end to end on 24 patients)
+
+A 24-patient subset is bundled so the pipeline can be checked without
+downloading TCGA or extracting features:
+
+```bash
+bash smoke_test/run_smoke_test.sh        # ~5 min on a GPU
+```
+
+Trains 3 folds, aggregates out-of-fold predictions, then runs the UMAP and
+attention-faithfulness analyses, ending with `SMOKE TEST PASSED`. It verifies
+the plumbing only - see `smoke_test/README.md`.
+
 ---
 
 ## 1. Data

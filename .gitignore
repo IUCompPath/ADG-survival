@@ -45,3 +45,8 @@ logs/
 
 # Superseded uncorrected label file (see gbmlgg_processed_fixed.csv)
 dataset_csv/gbmlgg_processed.csv
+
+# The bundled smoke-test subset is committed (see smoke_test/README.md)
+!smoke_test/features/pt_files/*.pt
+!smoke_test/**
+smoke_test/results/
